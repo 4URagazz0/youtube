@@ -1,2 +1,2 @@
 # youtube
-parser
+channel parser
