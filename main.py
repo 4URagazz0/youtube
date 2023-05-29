@@ -21,17 +21,38 @@ published_dates = []
 
 
 def save_file_with_directory(path):
+    """
+    This function creates a directory for saving a file.
+
+    Args:
+        path (str): The path to the file for which the directory needs to be created.
+    """
     directory = os.path.dirname(path)
     if not os.path.exists(directory):
         os.makedirs(directory)
 
 
 def url_by_id(video_id):
+    """
+    This function generates the URL for a YouTube video based on its ID.
+
+    Args:
+        video_id (str): The ID of the YouTube video.
+
+    Returns:
+        video_url (str): The URL of the YouTube video.
+    """
     video_url = f'https://www.youtube.com/watch?v={video_id}'
     return video_url
 
 
 def dowloand_video(video_id):
+    """
+    Downloads a YouTube video based on its ID.
+
+    Args:
+        video_id (str): The ID of the YouTube video.
+    """
     response = youtube.videos().list(
         part='snippet',
         id=video_id
@@ -47,6 +68,17 @@ def dowloand_video(video_id):
 
 
 def parse_channel(ch_id):
+    """
+    This function parses the information of a YouTube channel and retrieves its title, description, and published date.
+
+    Args:
+        ch_id (str): The ID of the YouTube channel.
+
+    Returns:
+        channel_title (str): The title of the channel
+        channel_description (str): The description of the channel
+        channel_published_date (datetime): published date
+    """
     channel_info = youtube.channels().list(part='snippet,contentDetails', id=ch_id).execute()
     channel_title = channel_info['items'][0]['snippet']['title']
     channel_description = channel_info['items'][0]['snippet']['description']
@@ -55,6 +87,12 @@ def parse_channel(ch_id):
 
 
 def channel_df():
+    """
+    Retrieves channel information and creates a DataFrame.
+
+    Returns:
+        DataFrame: A DataFrame containing channel information with columns 'id', 'channel_name', 'channel_description', and 'channel_published_date'.
+    """
     for ch_id in channel_id:
         channel_title, channel_description, channel_published_date = parse_channel(ch_id)
         c_id.append(ch_id)
@@ -69,7 +107,17 @@ def channel_df():
 
 
 def parse_playlist(playlist_id):
+    """
+    Parses a YouTube playlist and retrieves its information.
 
+    Args:
+        playlist_id (str): The ID of the YouTube playlist.
+
+    Returns:
+        published_at (datetime): playlist's published date
+        title (str): The title of the playlist.
+        videos_id (str): ID of the YouTube video
+    """
     playlist_response = youtube.playlists().list(
         part='snippet',
         id=playlist_id
@@ -109,6 +157,17 @@ def parse_playlist(playlist_id):
 
 
 def get_channel_video_ids(ch_id):
+    """
+    Retrieves the video IDs, published dates, and titles of all videos uploaded to a YouTube channel.
+
+    Args:
+        ch_id (str): The ID of the YouTube channel.
+
+    Returns:
+        videos (str): he ID of the YouTube video
+        videosPublishedAt (datetime): video published dates
+        videos_title: The title of the video.
+    """
     playlist_response = youtube.channels().list(
         part='contentDetails',
         id=ch_id
@@ -149,6 +208,21 @@ def get_channel_video_ids(ch_id):
 
 
 def parse_video(video_id):
+    """
+    Retrieves various details of a YouTube video.
+
+    Args:
+        video_id (str): The ID of the YouTube video.
+
+    Returns:
+        video_id (str): The ID of the YouTube video.
+        video_url (str): The URL of the YouTube video.
+        sub_time_code (list or str): The subtitles of the video, represented as a list of subtitle dictionaries with 'start', 'duration', and 'text' keys. If the video has no subtitles, it will be set to "the video has no subtitles".
+        video_tag (list): The tags associated with the video.
+        published_at (str): The published date of the video.
+        video_title (str): The title of the video.
+        video_description (str): The description of the video.
+    """
     path_sub_file = []
     response = youtube.videos().list(
         part='snippet',
@@ -182,18 +256,13 @@ def parse_video(video_id):
 
 def test_parse():
     """
-    :parameter:
-    video_id
+    Parses the channel data and retrieves video details for each channel.
 
-    :return:
-    video_id
-    url
-    description
-    public_date
-    playlist_id
-    subs with timecodes
-    tags
-    update_date
+    Returns:
+        DataFrame: A pandas DataFrame containing the parsed data for each channel. The DataFrame includes columns for channel ID, channel name, channel description, and channel published date.
+        Video (mp4): [Downloaded a YouTube video](Downloads_video.md) on system by path video/channel_id/video_published/video_id.
+        Subtitle (txt): Downloaded a Subtitles with timecode on system by path sub/channel_id/video_published/video_id.
+        Data (excel): all information's of channel
     """
     df = channel_df()
     for n, ch_id in enumerate(df['id'], start=1):
@@ -238,6 +307,12 @@ def test_parse():
 
 
 def main():
+    """
+    This function executes the data parsing and saving process.
+    It checks if data files already exist for the provided channel IDs and skips those channels.
+    For each channel ID, it calls the test_parse() function to parse and save the data.
+    The data is saved in an Excel file with the format 'data{channel_id}.xlsx'.
+    """
     for c_id in channel_id:
         output_file = f'data{c_id}.xlsx'
 
@@ -251,4 +326,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

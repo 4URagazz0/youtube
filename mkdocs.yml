@@ -1,0 +1,21 @@
+site_name: YouTube Parser
+repo_url: https://github.com/4URagazz0/youtube
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings
+#  - gh-deploy:
+#        force: true
+
+extra:
+  search:
+  language: 'en, ru'
+
+nav:
+  - Home:
+      home.md
+  - Parser:
+      index.md
