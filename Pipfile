@@ -10,9 +10,10 @@ google-auth = "2.17.3"
 numpy = "1.24.3"
 pandas = "2.0.1"
 youtube_transcript_api = "0.6.0"
+pytube = "*"
+openpyxl = "*"
 
 [dev-packages]
 
 [requires]
 python_version = "3.10"
-

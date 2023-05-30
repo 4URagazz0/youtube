@@ -1,17 +1,17 @@
+import os
+from datetime import datetime
+from typing import NamedTuple, List
+
 import numpy as np
 import pandas as pd
-import os
-
-from pytube import YouTube
-
-from youtube_transcript_api import YouTubeTranscriptApi
 from googleapiclient.discovery import build
-
+from pytube import YouTube
+from youtube_transcript_api import YouTubeTranscriptApi
 
 api_key = 'AIzaSyDzDjhZyqed6yVte90FeCS3VIxNQ35bSZw'
 youtube = build('youtube', 'v3', developerKey=api_key)
 
-channel_id = ['UCAW3t2rRd7v2zYCuNlFMkxQ', 'UCrWWcscvUWaqdQJLQQGO6BA']
+channel_id = ['UC4CooT4Pe1TcsSRPRlScsMA']
 
 df_channel = pd.DataFrame({'id': [], 'channel_name': [], 'channel_description': [], 'channel_published_date': []})
 c_id = []
@@ -20,70 +20,126 @@ descriptions = []
 published_dates = []
 
 
-def save_file_with_directory(path):
-    """
-    This function creates a directory for saving a file.
+class ChannelItem(NamedTuple):
+    title: str
+    id: str
+    description: str
+    published_dt: datetime
 
-    Args:
-        path (str): The path to the file for which the directory needs to be created.
-    """
-    directory = os.path.dirname(path)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+    @staticmethod
+    def parse_by_id(ch_id: str) -> 'ChannelItem':
+        channel_info = youtube.channels().list(part='snippet,contentDetails', id=ch_id).execute()
+        return ChannelItem(
+            id=ch_id,
+            title=channel_info['items'][0]['snippet']['title'],
+            description=channel_info['items'][0]['snippet']['description'],
+            published_dt=channel_info['items'][0]['snippet']['publishedAt'],
+        )
+
+    def get_all_videos(self, *, limit: int = 1) -> List['VideoItem']:
+        playlist_response = youtube.channels().list(part='contentDetails', id=self.id).execute()
+
+        playlist_id = playlist_response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+
+        videos = []
+        videosPublishedAt = []
+        videos_title = []
+        next_page_token = None
+        while True:  # TODO: get list directly!
+            playlist_items_response = youtube.playlistItems().list(
+                part='contentDetails',
+                playlistId=playlist_id,
+                maxResults=limit,  # Максимальное количество видео на одной странице
+                pageToken=next_page_token
+            ).execute()
+
+            # Извлечение идентификаторов видео
+            for item in playlist_items_response['items']:
+                response = youtube.videos().list(
+                    part='snippet',
+                    id=item['contentDetails']['videoId']
+                ).execute()
+                videos.append(item['contentDetails']['videoId'])
+                videosPublishedAt.append(item['contentDetails']['videoPublishedAt'])
+                videos_title.append(response['items'][0]['snippet']['title'])
+            next_page_token = playlist_items_response.get('nextPageToken')
+
+            if not next_page_token:
+                break
+
+            if 0 < len(videos) < 2:
+                break
+
+        return videos, videosPublishedAt, videos_title  # TODO
 
 
-def url_by_id(video_id):
-    """
-    This function generates the URL for a YouTube video based on its ID.
-
-    Args:
-        video_id (str): The ID of the YouTube video.
-
-    Returns:
-        video_url (str): The URL of the YouTube video.
-    """
-    video_url = f'https://www.youtube.com/watch?v={video_id}'
-    return video_url
+class VideoSub(NamedTuple):
+    start: float
+    duration: float
+    text: str
 
 
-def dowloand_video(video_id):
-    """
-    Downloads a YouTube video based on its ID.
+class VideoItemInfo(NamedTuple):
+    video: 'VideoItem'
+    subs: List[VideoSub]
+    tags: List[str]
+    description: str
 
-    Args:
-        video_id (str): The ID of the YouTube video.
-    """
-    response = youtube.videos().list(
-        part='snippet',
-        id=video_id
-    ).execute()
-
-    video_date = response['items'][0]['snippet']['publishedAt']
-    channelId = response['items'][0]['snippet']['channelId']
-
-    video_url = url_by_id(video_id)
-    path = f'video/{channelId}/{video_date}/{video_id}'
-    save_file_with_directory(path)
-    YouTube(video_url).streams.get_highest_resolution().download(output_path=path)
+    def save_subs(self, dest_dir: str) -> None:
+        # TODO
+        pass
 
 
-def parse_channel(ch_id):
-    """
-    This function parses the information of a YouTube channel and retrieves its title, description, and published date.
+class VideoItem(NamedTuple):
+    id: str
+    published_at: datetime
+    title: str
+    channel: ChannelItem
 
-    Args:
-        ch_id (str): The ID of the YouTube channel.
+    @property
+    def url(self) -> str:
+        return f'https://www.youtube.com/watch?v={self.id}'
 
-    Returns:
-        channel_title (str): The title of the channel
-        channel_description (str): The description of the channel
-        channel_published_date (datetime): published date
-    """
-    channel_info = youtube.channels().list(part='snippet,contentDetails', id=ch_id).execute()
-    channel_title = channel_info['items'][0]['snippet']['title']
-    channel_description = channel_info['items'][0]['snippet']['description']
-    channel_published_date = channel_info['items'][0]['snippet']['publishedAt']
-    return channel_title, channel_description, channel_published_date
+    def dowloand(self, dest_dir: str) -> None:
+        os.makedirs(dest_dir, exist_ok=True)
+        YouTube(self.url).streams.get_highest_resolution().download(output_path=dest_dir)
+
+    def get_info(self) -> VideoItemInfo:
+        path_sub_file = []
+        response = youtube.videos().list(
+            part='snippet',
+            id=self.id
+        ).execute()
+        video_tags = response['items'][0]['snippet']['tags']
+        published_at = response['items'][0]['snippet']['publishedAt']
+        video_title = response['items'][0]['snippet']['title']
+        video_description = response['items'][0]['snippet']['description']
+        channelId = response['items'][0]['snippet']['channelId']
+        try:
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript = transcript_list.find_transcript(['ru', 'en'])
+            sub_time_code = []
+            path = f'sub/{channelId}/{published_at}/{video_id}'
+            save_file_with_directory(path)
+            with open(f"{path}.txt", "w") as f:
+                for t in transcript.fetch():
+                    sub = VideoSub(
+                        start=t['start'],
+                        duration=t['duration'],
+                        text=t['text'],
+                    )
+                    f.write("{}\n".format(sub))
+                    sub_time_code.append(sub)
+                    path_sub_file.append(str(f"path: sub/{video_title}.txt"))
+        except:
+            sub_time_code = str("the video has't subtitles")
+            path_sub_file.append(str("the video has't subtitles"))
+        return VideoItemInfo(
+            subs=sub_time_code,
+            tags=video_tags,
+            description=video_description,
+            video=self,
+        )
 
 
 def channel_df():
@@ -106,7 +162,7 @@ def channel_df():
     return df_channel
 
 
-def parse_playlist(playlist_id):
+def parse_playlist(playlist_id) -> List[VideoItem]:
     """
     Parses a YouTube playlist and retrieves its information.
 
@@ -156,104 +212,6 @@ def parse_playlist(playlist_id):
     return published_at, title, videos_id
 
 
-def get_channel_video_ids(ch_id):
-    """
-    Retrieves the video IDs, published dates, and titles of all videos uploaded to a YouTube channel.
-
-    Args:
-        ch_id (str): The ID of the YouTube channel.
-
-    Returns:
-        videos (str): he ID of the YouTube video
-        videosPublishedAt (datetime): video published dates
-        videos_title: The title of the video.
-    """
-    playlist_response = youtube.channels().list(
-        part='contentDetails',
-        id=ch_id
-    ).execute()
-
-    playlist_id = playlist_response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
-
-    videos = []
-    videosPublishedAt = []
-    videos_title = []
-    next_page_token = None
-    while True:
-        playlist_items_response = youtube.playlistItems().list(
-            part='contentDetails',
-            playlistId=playlist_id,
-            maxResults=1,  # Максимальное количество видео на одной странице
-            pageToken=next_page_token
-        ).execute()
-
-        # Извлечение идентификаторов видео
-        for item in playlist_items_response['items']:
-            response = youtube.videos().list(
-                part='snippet',
-                id=item['contentDetails']['videoId']
-            ).execute()
-            videos.append(item['contentDetails']['videoId'])
-            videosPublishedAt.append(item['contentDetails']['videoPublishedAt'])
-            videos_title.append(response['items'][0]['snippet']['title'])
-        next_page_token = playlist_items_response.get('nextPageToken')
-
-        if not next_page_token:
-            break
-
-        if 0 < len(videos) < 2:
-            break
-
-    return videos, videosPublishedAt, videos_title
-
-
-def parse_video(video_id):
-    """
-    Retrieves various details of a YouTube video.
-
-    Args:
-        video_id (str): The ID of the YouTube video.
-
-    Returns:
-        video_id (str): The ID of the YouTube video.
-        video_url (str): The URL of the YouTube video.
-        sub_time_code (list or str): The subtitles of the video, represented as a list of subtitle dictionaries with 'start', 'duration', and 'text' keys. If the video has no subtitles, it will be set to "the video has no subtitles".
-        video_tag (list): The tags associated with the video.
-        published_at (str): The published date of the video.
-        video_title (str): The title of the video.
-        video_description (str): The description of the video.
-    """
-    path_sub_file = []
-    response = youtube.videos().list(
-        part='snippet',
-        id=video_id
-    ).execute()
-    video_tag = response['items'][0]['snippet']['tags']
-    published_at = response['items'][0]['snippet']['publishedAt']
-    video_url = url_by_id(video_id)
-    video_title = response['items'][0]['snippet']['title']
-    video_description = response['items'][0]['snippet']['description']
-    channelId = response['items'][0]['snippet']['channelId']
-    try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        transcript = transcript_list.find_transcript(['ru', 'en'])
-        sub_time_code = []
-        path = f'sub/{channelId}/{published_at}/{video_id}'
-        save_file_with_directory(path)
-        with open(f"{path}.txt", "w") as f:
-            for t in transcript.fetch():
-                sub = dict({'start': t['start'],
-                            'duration': t['duration'],
-                            'text': t['text']})
-                f.write("{}\n".format(sub))
-                sub_time_code.append(sub)
-                path_sub_file.append(str(f"path: sub/{video_title}.txt"))
-    except:
-        sub_time_code = str("the video has't subtitles")
-        path_sub_file.append(str("the video has't subtitles"))
-    return video_id, video_url, sub_time_code, video_tag, published_at, video_title, video_description
-
-
 def test_parse():
     """
     Parses the channel data and retrieves video details for each channel.
@@ -266,7 +224,7 @@ def test_parse():
     """
     df = channel_df()
     for n, ch_id in enumerate(df['id'], start=1):
-        videos_id, videosPublishedAt, videos_title = get_channel_video_ids(ch_id)
+        videos_id, videosPublishedAt, videos_title = get_channel_videos(ch_id)
         video_urls = []
         video_ids = [np.NaN]
         video_titles = [np.NaN]
@@ -313,6 +271,14 @@ def main():
     For each channel ID, it calls the test_parse() function to parse and save the data.
     The data is saved in an Excel file with the format 'data{channel_id}.xlsx'.
     """
+
+    ch = ChannelItem.parse_by_id(channel_id[-1])
+    ch.get_all_videos(limit=40)
+
+    print(get_channel_videos(channel_id[-1], limit=40))
+
+    exit(0)
+
     for c_id in channel_id:
         output_file = f'data{c_id}.xlsx'
 
