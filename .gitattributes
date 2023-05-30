@@ -1,0 +1,4 @@
+* text=auto
+Pipfile.lock text=binary
+src/mon_grafana/provisioning/dashboards/** text=binary
+*.ipynb text=binary
